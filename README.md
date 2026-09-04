@@ -13,6 +13,7 @@ Unity로 개발한 **필드 탐험 + 턴제 전투 RPG 클라이언트**입니�
 | 핵심 구현 | 해결한 문제 | 대표 코드 |
 | --- | --- | --- |
 | 턴제 전투 | 속도 기반 턴, 입력/AI 행동, 스킬·버프·연출과 Cinemachine 카메라를 비동기로 통합 | `BattleManager`, `TurnManager`, `BattleCameraManager` |
+| 오브젝트 풀링 | Addressables 생성 비용을 사전 적재·키별 재사용·자동 반납으로 분산 | `ObjectPoolManager`, `ObjectPool` |
 | 캐릭터 툴 | 애니메이션 재생·스크러빙, 이벤트·이펙트 배치, 설정 저장을 한 창에서 처리 | `CharacterToolWindow` |
 | 연출 그래프 | 스킬 연출을 노드 데이터로 제작하고 순차·분기·병렬로 실행 | `PresentationGraphWindow`, `GraphExecutor` |
 | 연출 뷰어 | 실제 전투 진입 없이 캐릭터·몬스터·스킬 연출을 반복 검증 | `SkillPreviewWindow`, `SkillPreviewRunner` |
@@ -114,6 +115,50 @@ StartBattle
 
 투사체 스킬은 실행 전에 필요한 프리팹을 오브젝트 풀에 미리 적재하여 연출 도중의 생성 비용과 로딩 지연을 줄이도록 구성했습니다.
 
+### Addressables 기반 오브젝트 풀링
+
+전투 중 반복적으로 생성되는 투사체와 이펙트의 Instantiate/Destroy 비용 및 순간 로딩을 줄이기 위해 **Addressables와 연동되는 오브젝트 풀을 직접 구현**했습니다.
+
+```text
+ResourceManager.NewAsync(key, usePooling: true)
+  ├─ 대기 객체 있음 → Queue에서 Dequeue → Parent/Position 초기화 → 활성화
+  └─ 대기 객체 없음 → Addressables.InstantiateAsync
+                         └─ 기본 수량을 백그라운드 Preload Queue에 등록
+
+사용 완료
+  → ResourceManager.Free(gameObject)
+  → 이름을 Key로 Pool 탐색
+  → 비활성화 + 전용 Container 이동 + Queue에 반납
+```
+
+#### 주요 구현
+
+- Addressables 주소를 Key로 사용하는 풀별 `Queue<GameObject>` 관리
+- `PreLoadAsync(key, count)`를 통한 필요한 수량의 명시적 사전 생성
+- 최초 요청 시 객체를 즉시 반환하고 나머지 기본 수량은 비동기 로딩 큐에서 보충
+- 프레임마다 로딩 요청을 처리하는 UniTask 기반 백그라운드 Preload Loop
+- 풀에서 꺼낼 때 Parent, 활성 상태, Local Position 초기화
+- `DontDestroyOnLoad` 관리자와 비활성 전용 Container를 통한 대기 객체 관리
+- 씬 초기화와 관리자 종료 시 Pool 일괄 정리
+- `ResourceManager`에서 풀링 사용 여부와 관계없이 동일한 생성·반납 API 제공
+
+#### 전투 시스템 적용
+
+`SkillManager`는 투사체 데이터가 있는 스킬을 실행하기 전에 해당 프리팹 5개를 미리 적재합니다. 연출 중 투사체가 필요할 때 Addressables 로딩을 기다리지 않고 즉시 사용할 수 있도록 하기 위함입니다.
+
+- `Projectile`: 타깃 충돌 및 Hit 콜백 실행 후 Pool 반환
+- `FieldArrow`: 필드 투사체 사용 완료 후 Pool 반환
+- `EffectAutoRelease`: 지정 시간이 지나거나 모든 ParticleSystem 재생이 끝나면 자동 반환
+
+특히 `EffectAutoRelease`는 고정 시간 방식과 ParticleSystem 생존 상태 검사 방식을 모두 지원해 이펙트마다 별도의 제거 코드를 작성하지 않아도 됩니다. 이를 통해 전투 로직은 생성과 사용에만 집중하고, 반복 객체의 수명 관리는 공통 계층에서 처리하도록 분리했습니다.
+
+**주요 코드**
+
+- `Assets/Scripts/Utility/ObjectPool/ObjectPoolManager.cs`
+- `Assets/Scripts/Utility/ObjectPool/ObjectPool.cs`
+- `Assets/Scripts/Manager/ResourceManager.cs`
+- `Assets/Scripts/Game/EffectAutoRelease.cs`
+- `Assets/Scripts/Game/Projectile/Projectile.cs`
 ### 확장 가능한 전투 구조
 
 - 스킬 효과: `ISkillActionExecutor` — 공격, 회복, 버프, 소환

@@ -12,52 +12,113 @@ Unity로 개발한 **필드 탐험 + 턴제 전투 RPG 클라이언트**입니�
 
 | 핵심 구현 | 해결한 문제 | 대표 코드 |
 | --- | --- | --- |
-| 턴제 전투 | 턴, 입력, 적 행동, 스킬, 버프, 카메라, 연출의 실행 순서를 비동기로 통합 | `BattleManager`, `TurnManager` |
+| 턴제 전투 | 속도 기반 턴, 입력/AI 행동, 스킬·버프·연출과 Cinemachine 카메라를 비동기로 통합 | `BattleManager`, `TurnManager`, `BattleCameraManager` |
 | 캐릭터 툴 | 애니메이션 재생·스크러빙, 이벤트·이펙트 배치, 설정 저장을 한 창에서 처리 | `CharacterToolWindow` |
 | 연출 그래프 | 스킬 연출을 노드 데이터로 제작하고 순차·분기·병렬로 실행 | `PresentationGraphWindow`, `GraphExecutor` |
 | 연출 뷰어 | 실제 전투 진입 없이 캐릭터·몬스터·스킬 연출을 반복 검증 | `SkillPreviewWindow`, `SkillPreviewRunner` |
 
 ## 1. 턴제 전투 시스템
 
-전투의 전체 흐름과 세부 책임을 분리해 새로운 스킬과 전투 콘텐츠를 쉽게 추가할 수 있도록 설계했습니다.
+전투 루프가 입력, 계산, 애니메이션, 카메라에 강하게 결합되지 않도록 **턴 진행·스킬 판정·연출 실행·화면 표현의 책임을 분리**했습니다. 각 시스템은 명확한 컨텍스트와 이벤트로 연결되며, 새로운 스킬과 연출을 기존 전투 루프의 큰 수정 없이 추가할 수 있습니다.
 
-### 구조
+### 전투 초기화
 
-- `BattleManager`: 전투 준비, 턴 루프, 아군/적군 행동, 종료 처리 조정
-- `TurnManager`: 현재 행동 유닛, 타깃, 선택 스킬과 턴 상태 관리
-- `BattleUnitManager`: 아군·적군 런타임 유닛 생성과 생존 상태 관리
-- `SkillManager`: 스킬 효과 실행과 연출 컨텍스트 연결
-- `BuffManager`: 턴 시작·종료에 맞춘 상태 효과 생명주기 관리
-- `BattleCameraManager`: 타깃 선택, 공격, 광역 연출에 맞춘 카메라 전환
+`BattleManager.ReadyBattle()`에서 전투에 필요한 시스템을 순서대로 구성합니다.
 
-### 확장 방식
+1. `BattleStage`가 씬의 Anchor 정보를 초기화합니다.
+2. `BattleUnitManager`가 `BattleContext`의 아군과 적군을 런타임 유닛으로 생성합니다.
+3. `TurnManager`가 전투 참여 가능 유닛을 선별하고 **Speed 스탯 내림차순**으로 행동 순서를 만듭니다.
+4. `SkillManager`가 스킬 Executor와 전체 유닛 컨텍스트를 구성합니다.
+5. `BattleCameraManager`가 Cinemachine 전투 카메라를 초기 구도로 전환합니다.
 
-- 스킬 효과: `ISkillActionExecutor` — 공격, 회복, 버프, 소환
-- 공격 표현: `IAttackStrategy` — 일반, 투사체, 궁극기
-- 상태 효과: `IBuff` — 능력치 변화, 보호막, 도발, 침묵, 기절, 지속 피해·회복
+### 턴 상태 머신
 
-각 기능을 인터페이스 기반 구현체로 분리하여 새 효과를 추가할 때 기존 전투 루프의 변경 범위를 줄였습니다.
+전투 흐름을 다음 `TurnState`로 명시적으로 표현했습니다.
 
 ```text
-Turn 시작
-  → 행동 유닛 결정
-  → 아군 입력 / 적 행동 선택
-  → 대상 및 스킬 확정
-  → 전투 카메라 전환
-  → Presentation Graph 실행
-  → 스킬 효과 적용
-  → 원위치 복귀 및 Turn 종료
+StartBattle
+  ├─ PlayerTurn → SelectSkill → Attack
+  └─ EnemyTurn → EnemySelectSkill → EnemySelectTarget → EnemyAttack
+                                                        ↓
+                                                     EndTurn
 ```
 
-UniTask와 `CancellationToken`을 사용해 입력 대기, 애니메이션, 이동, 연출을 순차적으로 제어하고 전투 종료 시 진행 중인 작업을 취소할 수 있도록 구성했습니다.
+상태가 바뀔 때마다 `TurnStateChange` 이벤트와 현재 `TurnContext`를 함께 발행합니다. 전투 UI와 입력 계층은 전투 루프를 직접 참조하지 않고 상태 이벤트를 기준으로 활성화할 수 있습니다.
+
+각 턴에는 시전자, 대상 목록, 선택 스킬을 담은 `TurnContext`를 새로 생성합니다. 사망했거나 행동할 수 없는 유닛은 건너뛰고, 행동이 끝나면 인덱스를 순환시켜 다음 유닛으로 진행합니다.
+
+### 플레이어와 적 턴 실행
+
+```text
+행동 유닛 선택
+  → Buff OnTurnStart
+  → 플레이어 입력 대기 / 적 스킬·타깃 결정
+  → 타깃 표시 및 Cinemachine 구도 전환
+  → 스킬 결과 계산
+  → Presentation Graph 재생
+  → 애니메이션 Hit Event 시점에 결과 반영
+  → 공격자 원위치 복귀
+  → Buff OnTurnEnd
+  → 다음 턴
+```
+
+플레이어 턴은 선택 상태에서 스킬 입력을 비동기로 기다리고, 적 턴은 스킬과 대상을 결정한 뒤 동일한 `SkillManager.UseSkill()` 경로로 합류합니다. 아군과 적군이 같은 실행 파이프라인을 사용하므로 효과 계산과 연출 처리의 중복을 줄였습니다.
+
+### 스킬 계산과 연출의 분리
+
+`SkillManager`는 먼저 스킬 데이터를 Executor에 전달해 `SkillResult`를 생성한 뒤, 결과와 유닛 View를 `PresentationContext`로 변환하여 연출 그래프를 실행합니다.
+
+- `AttackExecutor`: 공격 결과 계산
+- `HealExecutor`: 회복 처리
+- `BuffExecutor`: 상태 효과 처리
+- `SummonExecutor`: 소환 처리
+- `ProcessSkillEffect`: 즉시/지속 효과 적용 시점 분리
+
+연출 그래프는 `PresentationContext.onHit` 콜백을 통해 애니메이션이나 투사체의 실제 피격 프레임을 `SkillManager`에 전달합니다. `hitIndex`에 해당하는 계산 결과를 조회해 피격 피드백을 재생하며, 효과 반영 지점을 연출 타이밍과 연결할 수 있도록 구성했습니다.
+
+투사체 스킬은 실행 전에 필요한 프리팹을 오브젝트 풀에 미리 적재하여 연출 도중의 생성 비용과 로딩 지연을 줄이도록 구성했습니다.
+
+### 확장 가능한 전투 구조
+
+- 스킬 효과: `ISkillActionExecutor` — 공격, 회복, 버프, 소환
+- 공격 방식: `IAttackStrategy` — 일반, 투사체, 궁극기
+- 상태 효과: `IBuff` — 능력치 변화, 보호막, 도발, 침묵, 기절, 지속 피해·회복
+
+각 기능을 인터페이스와 Factory/Registry 구조로 분리했습니다. 새 스킬 동작은 Executor, 새 공격 연출 방식은 Strategy, 새 상태 효과는 Buff 구현체를 추가하는 방식으로 확장할 수 있습니다.
+
+### Cinemachine 전투 카메라
+
+전투 카메라는 Unity Cinemachine 3의 `CinemachineCamera`와 `CinemachineRotationComposer`를 사용해 구현했습니다. 단순 고정 카메라가 아니라 **턴 상태와 공격 단계에 따라 Follow·LookAt 대상을 런타임에 교체하는 전투 연출 시스템**입니다.
+
+| 카메라 타입 | 용도 |
+| --- | --- |
+| `EnemyWide` | 전투 시작과 적 진영 전체를 보여주는 기본 구도 |
+| `EnemySingle` | 선택한 대상 또는 행동 유닛을 강조하는 단일 구도 |
+| `FllowEnemySingle` | 공격자를 따라가면서 타깃을 바라보는 공격 구도 |
+| `TargetAlly` | 아군 대상 연출을 위한 구도 |
+
+`BattleCameraManager`는 카메라 타입과 Virtual Camera를 Dictionary로 매핑하고 현재 카메라만 활성화합니다. 상황에 따라 다음 값을 동적으로 설정합니다.
+
+- `Follow`: 공격자 또는 행동 유닛의 Transform/TargetPoint
+- `LookAt`: 선택한 적 또는 공격 대상의 Transform/TargetPoint
+- `Damping`: 선택 화면과 공격 연출에 맞춘 추적 반응 속도
+
+타깃 선택 시 `EnemySingle`의 LookAt을 갱신하고, 공격 직전에는 `FllowEnemySingle`로 전환해 시전자를 추적하며 대상을 바라보게 합니다. 카메라 교체 사이에 한 프레임을 양보해 활성 상태와 Follow/LookAt 갱신 순서를 보장하고, 스킬 연출 종료 후 공격 카메라를 비활성화합니다.
+
+이를 통해 전투 로직은 “어떤 구도가 필요한지”만 요청하고, Cinemachine의 실제 추적 대상과 Composer 설정은 카메라 매니저가 전담하도록 분리했습니다.
+
+### 비동기 실행과 종료 처리
+
+UniTask와 `CancellationToken`으로 입력 대기, 카메라 전환, 캐릭터 이동, 애니메이션, 연출 그래프를 하나의 비동기 흐름으로 연결했습니다. 전투 종료 시 토큰을 취소하여 진행 중인 턴과 연출이 다음 씬까지 남지 않도록 제어합니다.
 
 **주요 코드**
 
-- `Assets/Scripts/Game/Battle/Domain/Battle`
+- `Assets/Scripts/Game/Battle/Domain/Battle/BattleManager.cs`
+- `Assets/Scripts/Game/Battle/Domain/Battle/BattleManager.BattleLoop.cs`
+- `Assets/Scripts/Game/Battle/Domain/Battle/BattleCameraManager.cs`
 - `Assets/Scripts/Game/Battle/Domain/Turn`
 - `Assets/Scripts/Game/Battle/Domain/Skill`
 - `Assets/Scripts/Game/Battle/Domain/Buff`
-
 ## 2. 캐릭터 툴
 
 `Tools/S7/Character Tool`에서 캐릭터 제작에 반복적으로 필요한 작업을 한 흐름으로 처리하는 Unity Editor 도구입니다.

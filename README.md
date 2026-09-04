@@ -121,79 +121,156 @@ UniTask와 `CancellationToken`으로 입력 대기, 카메라 전환, 캐릭터 
 - `Assets/Scripts/Game/Battle/Domain/Buff`
 ## 2. 캐릭터 툴
 
-`Tools/S7/Character Tool`에서 캐릭터 제작에 반복적으로 필요한 작업을 한 흐름으로 처리하는 Unity Editor 도구입니다.
+`Tools/S7/Character Tool`은 캐릭터 프리팹과 애니메이션을 게임에 적용하기 전에 **재생, 이벤트 편집, 이펙트 배치, 데이터 저장을 한 화면에서 처리**하기 위해 제작한 Unity Editor 도구입니다.
 
-### 주요 기능
+### 제작 배경
 
-- 전용 Preview Scene 자동 진입
-- 캐릭터 프리팹 생성과 즉시 미리보기
-- Animator State 선택 및 Play/Pause/Reset
-- 타임라인 스크러빙과 프레임 단위 애니메이션 확인
-- 애니메이션 이벤트 추가·삭제·시간 이동
-- 이벤트 시점의 이펙트 생성과 위치 확인
-- `CharacterAnimationSet` 에셋 저장
-- 대상 에셋의 Addressables 등록 지원
-- AnimationClip 이름 규칙을 이용한 Animator Override 자동 매핑
+애니메이션 이벤트와 이펙트 타이밍을 맞추려면 Animator, 프리팹, Hierarchy, Inspector를 반복해서 오가야 했습니다. 이를 줄이기 위해 전용 Preview Scene과 타임라인 UI를 만들고, 편집 결과가 런타임에서 사용하는 `CharacterAnimationSet`에 바로 저장되도록 연결했습니다.
 
-런타임에서 결과를 확인한 뒤 프리팹과 애니메이션 파일을 반복 수정하던 작업을 줄이고, **캐릭터 세팅과 이벤트 타이밍 검증을 에디터 안에서 완료**하는 데 목적을 두었습니다.
+### 애니메이션 프리뷰
+
+- 툴 실행 시 `ScenePreview`를 자동으로 열어 일정한 테스트 환경 구성
+- 캐릭터 프리팹을 임시 인스턴스로 생성하여 원본 에셋과 씬 오염 방지
+- Animator Controller의 State Machine과 하위 State Machine을 순회해 상태 목록 자동 수집
+- 선택한 State의 AnimationClip과 재생 길이 자동 탐색
+- Play/Pause/Reset과 타임 슬라이더를 이용한 임의 시점 스크러빙
+- `EditorApplication.update`를 사용해 Play Mode가 아닌 상태에서도 애니메이션 진행
+
+### 이벤트 타임라인 편집
+
+Animation State별 이벤트를 타임라인 마커로 표시하며, 현재 프레임에서 이벤트를 추가하거나 마커를 드래그해 시간을 조절할 수 있습니다.
+
+각 이벤트에는 다음 정보를 저장합니다.
+
+- 이벤트 시간과 `AnimationEventType`
+- 문자열·실수·정수·불리언 파라미터
+- 이펙트 프리팹과 Addressables 주소
+- 캐릭터 Socket 이름
+- 위치·회전 Offset
+- 이펙트 지속 시간
+
+`SpawnEffect` 이벤트를 선택하면 캐릭터 Hierarchy에서 수집한 Socket 목록을 드롭다운으로 제공합니다. 선택한 Socket에 이펙트를 생성하고 Offset을 적용해 실제 부착 위치를 즉시 확인할 수 있습니다. 파티클 시스템의 길이를 분석해 지속 시간을 자동 설정하며, 스크러빙 또는 재생 위치에 맞춰 에디터 이펙트를 갱신합니다.
+
+### 데이터와 Addressables 연동
+
+- State 이름과 Hash, 이벤트 목록을 `CharacterAnimationSet` ScriptableObject에 저장
+- 변경 시 `SetDirty`, `SaveAssets`, `Refresh`로 에셋 영속화
+- 선택한 이펙트가 Addressables에 없으면 엔트리를 생성하고 런타임 주소 저장
+- 편집 모드와 Play Mode의 데이터를 분리해 실행 중 원본 데이터 변경 방지
+- 창 종료 또는 캐릭터 교체 시 임시 캐릭터와 이펙트 정리
+
+### Animator Override 자동 매핑
+
+`Tools/Animator Override Auto Assign`은 캐릭터별 애니메이션 교체 작업을 자동화하는 별도 도구입니다.
+
+1. 대상 `AnimatorOverrideController`, 애니메이션 폴더, 매핑 Preset을 선택합니다.
+2. Base Controller의 모든 State Machine을 재귀 탐색해 원본 Clip을 수집합니다.
+3. Preset에 정의된 정규식 패턴을 우선순위대로 적용합니다.
+4. 결과를 `SUCCESS`, `MULTIPLE`, `NO_MATCH`, `NO_RULE`로 분류해 표시합니다.
+5. 후보가 여러 개인 항목은 드롭다운에서 사람이 최종 Clip을 선택합니다.
+6. 검토된 결과만 일괄 적용하고 에셋으로 저장합니다.
+
+첫 패턴이 없을 때 후순위 패턴을 폴백으로 사용하며, 자동 매핑의 속도와 수동 검토의 안전성을 함께 확보했습니다.
 
 **주요 코드**
 
 - `Assets/Scripts/Tool/Character/Editor/CharacterToolWindow.cs`
 - `Assets/Scripts/Tool/Character/Editor/AnimatorOverrideAutoAssignWindow.cs`
+- `Assets/Scripts/Tool/Character/AnimatorClipMappingPreset.cs`
 - `Assets/Scripts/Tool/Character/CharacterAnimationSet.cs`
 - `Assets/Scripts/Tool/Character/AnimationStateEventData.cs`
 
-## 3. 연출 그래프
+## 3. 연출 그래프 에디터
 
-스킬 연출 순서를 코드에 하드코딩하지 않고 `PresentationGraphAsset` 데이터로 제작하는 노드 기반 시스템입니다.
+`Tools/S7/Presentation Graph`는 스킬 연출을 코드에 하드코딩하지 않고 **노드를 조립해 제작하는 GraphView 기반 Editor Window**입니다. 편집용 그래프와 런타임 실행 객체를 분리하여 제작 편의성과 런타임 독립성을 함께 확보했습니다.
 
-### 제작과 실행 분리
+### 그래프 제작 기능
+
+- New, Load, Save, Save As를 지원하는 Toolbar
+- `PresentationNodeType`별 노드 생성 메뉴
+- 노드 드래그, 연결, 삭제와 위치 저장
+- 노드 타입에 맞춘 입력·출력 Port 동적 구성
+- 노드별 제목과 3개의 범용 파라미터 편집
+- Start Node 삭제·이동 방지
+- 그래프 자동 정렬
+
+그래프 저장 시 각 노드의 GUID, 타입, 위치, 파라미터를 기록하고, Edge에는 시작/도착 노드 GUID와 양쪽 Port 이름을 저장합니다. 로드할 때 GUID Map으로 노드를 복원하고 Port 이름을 기준으로 연결을 재구성하므로 Choice나 Fork처럼 출력이 여러 개인 노드도 정확히 복원할 수 있습니다.
+
+### 자동 레이아웃
+
+단순히 노드를 한 줄로 배치하지 않고 연결 관계를 분석해 다음 요소를 반영합니다.
+
+- Start Node부터 진행 방향 계산
+- 이전/다음 노드 관계 Map 구성
+- 일반 흐름의 X축 배치
+- Branch/Fork Lane의 Y축 간격 분리
+- Fork에서 Join까지의 병렬 블록 탐색
+- 합류 지점 이후 흐름 재정렬
+
+복잡한 병렬 연출을 수정한 후 수동으로 노드를 다시 정렬하는 시간을 줄이는 기능입니다.
+
+### 런타임 변환과 실행
 
 ```text
 PresentationGraphWindow
-  → PresentationGraphAsset 저장
+  → PresentationGraphAsset
   → PresentationRuntimeGraphBuilder
-  → RuntimeNode 구성
-  → GraphExecutor 실행
-  → IPresentationNode.PlayAsync()
+  → RuntimeNode + IPresentationNode
+  → GraphExecutor
 ```
 
-GraphView 기반 Editor Window가 노드와 연결 정보를 저장하고, 런타임 빌더가 직렬화 데이터를 실행 객체로 변환합니다. 편집 데이터와 런타임 객체를 분리하여 Editor 의존성이 실제 전투 코드에 섞이지 않도록 구성했습니다.
+`PresentationRuntimeGraphBuilder`가 직렬화된 노드 타입을 실제 `IPresentationNode` 구현체로 변환하고 Edge 정보를 런타임 연결로 구성합니다. `GraphExecutor`는 CancellationToken을 전달하면서 노드를 비동기로 실행합니다.
 
-### 지원 노드
+지원하는 주요 노드는 다음과 같습니다.
 
 - 애니메이션 재생 및 애니메이션 이벤트 대기
 - 캐스팅, 이동, 바라보기, 페이드
-- 투사체 생성·발사와 피격 이벤트 등록
+- 투사체 생성·발사와 피격 이벤트 등록/해제
 - Timeline, 대화, QTE 실행
 - 조건 분기와 Choice
 - Fork/Join 기반 병렬 연출
 - 아군 표시·숨김 등 전투 화면 제어
 
-각 노드는 `IPresentationNode.PlayAsync()` 계약을 따르고, `PresentationContext`를 통해 시전자, 대상, 전투 매니저, Timeline 공급자 등 실행 데이터를 전달받습니다. Timeline과 그래프 에셋은 Addressables로 로드하며 실행 완료 후 해제합니다.
+각 노드는 `PresentationContext`를 통해 시전자, 대상, 스킬 결과, 아군·적군 목록, Timeline 공급자와 Hit 콜백을 전달받습니다. 동일한 그래프를 실제 전투와 연출 뷰어 양쪽에서 실행할 수 있습니다.
 
 **주요 코드**
 
-- `Assets/Scripts/Game/Presentation/Graph/Editor`
+- `Assets/Scripts/Game/Presentation/Graph/Editor/PresentationGraphWindow.cs`
+- `Assets/Scripts/Game/Presentation/Graph/Editor/PresentationGraphView.cs`
+- `Assets/Scripts/Game/Presentation/Graph/Editor/PresentationGraphNodeView.cs`
 - `Assets/Scripts/Game/Presentation/Graph/Runtime`
 - `Assets/Scripts/Game/Presentation/Node`
-- `Assets/Scripts/Game/Presentation/PresentationCore.cs`
 
-## 4. 연출 뷰어
+## 4. 스킬 연출 뷰어
 
-`Tools/S7/Skill Preview`는 전체 게임 플로우나 실제 전투 씬에 진입하지 않고 스킬 연출을 빠르게 확인하기 위한 전용 도구입니다.
+`Tools/S7/Skill Preview`는 전체 게임 플로우나 실제 전투 씬에 진입하지 않고 **실제 데이터와 동일한 연출 실행기를 사용해 스킬을 빠르게 검증**하는 도구입니다.
 
-### 주요 기능
+### 자동 테스트 환경 구성
 
-- 프리뷰 환경에서 캐릭터·몬스터 모델 생성
-- 캐릭터/몬스터 및 스킬 데이터 선택
-- `SkillPreviewContextBuilder`로 실제 실행 구조와 동일한 연출 컨텍스트 구성
-- `SkillPreviewRunner`를 통한 연출 그래프 실행
-- 캐릭터와 몬스터의 위치·방향을 포함한 반복 테스트
-- 대상 교체와 종료 시 Addressables 인스턴스 해제
+1. 수정 중인 씬의 저장 여부를 확인합니다.
+2. 전용 `SceneSkillPreview` 씬을 열고 Play Mode로 진입합니다.
+3. Addressables를 초기화하고 실제 `T_UnitData`를 로드합니다.
+4. 데이터를 Character와 Monster로 분류해 선택 목록을 만듭니다.
+5. 지정 폴더의 `PresentationGraphAsset`을 검색하고 이름순으로 정렬합니다.
+6. 기본 캐릭터와 몬스터를 각각의 Anchor에 생성합니다.
 
-연출 하나를 확인하기 위해 게임 시작, 필드 진입, 적 조우, 스킬 선택을 반복할 필요 없이 **제작 직후 결과를 검증**할 수 있도록 했습니다.
+툴 창 하나에서 Character, Monster, Graph를 선택하고 Play/Stop할 수 있으며, 새 그래프를 만든 뒤 `Refresh Graphs`로 즉시 목록을 갱신할 수 있습니다.
+
+### 실제 런타임과 동일한 실행 경로
+
+`SkillPreviewContextBuilder`가 프리뷰 유닛을 `PresentationContext`로 변환하고, 실제 전투와 동일한 `PresentationRuntimeGraphBuilder`와 `GraphExecutor`를 사용합니다. 뷰어 전용으로 연출 로직을 복제하지 않았기 때문에 프리뷰 결과와 런타임 결과의 차이를 줄였습니다.
+
+그래프에 Timeline Node가 있을 때만 `TimelineAddressableProvider`를 생성해 필요한 Timeline을 동적으로 공급합니다. 모든 노드는 CancellationToken을 전달받으며 Stop 버튼으로 실행 중인 연출을 취소할 수 있습니다.
+
+### 반복 검증과 리소스 정리
+
+- 재생 중 중복 Play 방지
+- 캐릭터 또는 몬스터 변경 시 기존 Addressables 모델 해제 후 재생성
+- 연출 종료 후 캐릭터 위치와 회전 원상 복구
+- 툴 Window 비활성화 또는 종료 시 실행 취소 및 프리뷰 인스턴스 해제
+- 그래프 또는 유닛 데이터가 없는 경우 실행 전 검증과 경고 출력
+
+이를 통해 연출 하나를 확인하기 위해 게임 시작, 패치, 필드 진입, 적 조우, 스킬 선택을 반복할 필요 없이 **제작 직후 선택–재생–수정 사이클을 짧게 반복**할 수 있습니다.
 
 **주요 코드**
 
@@ -201,7 +278,6 @@ GraphView 기반 Editor Window가 노드와 연결 정보를 저장하고, 런�
 - `Assets/Scripts/Tool/SkillPreview/SkillPreviewRunner.cs`
 - `Assets/Scripts/Tool/SkillPreview/SkillPreviewContextBuilder.cs`
 - `Assets/Scripts/Tool/SkillPreview/PreviewUnitController.cs`
-
 ## 콘텐츠 제작 워크플로
 
 ```text

@@ -1,231 +1,206 @@
 # SEQ7 Client
 
-Unity로 개발 중인 **필드 탐험 + 턴제 전투 RPG 클라이언트**입니다. 필드 이동과 상호작용, 적 조우, 턴 기반 스킬 전투, 퀘스트, 대화/QTE, 그래프 기반 전투 연출을 하나의 클라이언트 흐름으로 구성합니다.
+Unity로 개발한 **필드 탐험 + 턴제 전투 RPG 클라이언트**입니다.
 
-이 저장소는 포트폴리오 검토를 위한 **클라이언트 소스 코드 공개본**입니다. 상용 에셋과 프로젝트 데이터는 제외하고 `Assets/Scripts`를 중심으로 공개했습니다.
+이 저장소는 포트폴리오 검토를 위한 소스 코드 공개본입니다. 상용 에셋과 프로젝트 데이터는 제외했으며, 제가 중점적으로 구현한 **전투 시스템, 캐릭터 툴, 연출 그래프, 연출 뷰어** 코드를 중심으로 구성했습니다.
 
-## Portfolio Highlights
+## 핵심 요약
 
-> **339개 C# 파일 · 약 22,000 LOC 규모의 RPG 클라이언트 코드를 기능 단위로 설계하고 구현했습니다.**
+> **런타임 전투 시스템과 콘텐츠 제작 도구를 하나의 파이프라인으로 설계했습니다.**
+>
+> 캐릭터 애니메이션 세팅 → 연출 그래프 조립 → 전용 뷰어 검증 → 실제 전투 실행까지 이어지는 작업 흐름을 구현했습니다.
 
-| 핵심 역량 | 구현 내용 | 코드에서 확인할 부분 |
+| 핵심 구현 | 해결한 문제 | 대표 코드 |
 | --- | --- | --- |
-| 게임 흐름 설계 | 필드·야간 필드·스토리·전투·UI 상태 전환과 비동기 생명주기 관리 | `GameFlowManager`, `GameSceneManager` |
-| 턴제 전투 시스템 | 턴 상태, 유닛, 타깃 선택, 스킬 실행, 버프, 승패와 필드 복귀를 모듈화 | `BattleManager`, `TurnManager`, `SkillManager` |
-| 확장 가능한 전투 로직 | 스킬 효과는 Executor, 공격 방식과 적 AI는 Strategy, 버프는 공통 인터페이스로 분리 | `ISkillActionExecutor`, `IAttackStrategy`, `IUnitActionStrategy`, `IBuff` |
-| 데이터 주도 설계 | 테이블로 유닛·스킬·퀘스트·보상·필드를 구성하고 런타임 객체를 생성 | `GameData`, `UnitDataManager`, `QuestManager` |
-| 비동기 리소스 관리 | Addressables 기반 패치, 데이터 다운로드, 씬/프리팹 로드와 해제 흐름 구현 | `AddressableManager`, `UIPanelPatch` |
-| 자체 연출 파이프라인 | 직렬화 그래프를 런타임 노드로 변환해 애니메이션·Timeline·QTE·분기/병렬 연출 실행 | `PresentationGraphAsset`, `GraphExecutor` |
-| 제작 효율화 | 캐릭터 설정, 적 배치, Animator 연결, 연출 그래프, 스킬 프리뷰용 Unity Editor 도구 제작 | `Scripts/Tool`, `Presentation/Graph/Editor` |
+| 턴제 전투 | 턴, 입력, 적 행동, 스킬, 버프, 카메라, 연출의 실행 순서를 비동기로 통합 | `BattleManager`, `TurnManager` |
+| 캐릭터 툴 | 애니메이션 재생·스크러빙, 이벤트·이펙트 배치, 설정 저장을 한 창에서 처리 | `CharacterToolWindow` |
+| 연출 그래프 | 스킬 연출을 노드 데이터로 제작하고 순차·분기·병렬로 실행 | `PresentationGraphWindow`, `GraphExecutor` |
+| 연출 뷰어 | 실제 전투 진입 없이 캐릭터·몬스터·스킬 연출을 반복 검증 | `SkillPreviewWindow`, `SkillPreviewRunner` |
 
-### 특히 강조하고 싶은 설계
+## 1. 턴제 전투 시스템
 
-#### 1. 기능 추가에 강한 전투 구조
+전투의 전체 흐름과 세부 책임을 분리해 새로운 스킬과 전투 콘텐츠를 쉽게 추가할 수 있도록 설계했습니다.
 
-`BattleManager`가 모든 세부 동작을 직접 처리하지 않고 턴, 유닛, 스킬, 버프, 카메라와 연출을 각각의 책임으로 분리했습니다. 새 스킬 효과는 `ISkillActionExecutor`, 새 공격 방식은 `IAttackStrategy`, 새 상태 효과는 `IBuff` 구현을 추가하는 방식으로 확장할 수 있습니다. 조건 분기가 한 클래스에 누적되는 문제를 줄이고 전투 콘텐츠 추가 비용을 낮추는 데 초점을 맞췄습니다.
+### 구조
 
-#### 2. 필드와 전투를 연결하는 비동기 상태 전환
+- `BattleManager`: 전투 준비, 턴 루프, 아군/적군 행동, 종료 처리 조정
+- `TurnManager`: 현재 행동 유닛, 타깃, 선택 스킬과 턴 상태 관리
+- `BattleUnitManager`: 아군·적군 런타임 유닛 생성과 생존 상태 관리
+- `SkillManager`: 스킬 효과 실행과 연출 컨텍스트 연결
+- `BuffManager`: 턴 시작·종료에 맞춘 상태 효과 생명주기 관리
+- `BattleCameraManager`: 타깃 선택, 공격, 광역 연출에 맞춘 카메라 전환
 
-`GameFlowManager`와 `GameSceneManager`를 분리해 게임 규칙의 상태 전환과 Unity 씬 로딩 책임을 나눴습니다. 필드 배경·플레이 영역·전투 로직·전투 배경을 Additive 씬으로 조합하고, UniTask 기반 전환 과정에서 페이드, UI 정리, 리소스 사전 로드, 취소 처리를 순서대로 제어합니다.
+### 확장 방식
 
-#### 3. 프로그래머 의존도를 줄이는 연출 그래프
+- 스킬 효과: `ISkillActionExecutor` — 공격, 회복, 버프, 소환
+- 공격 표현: `IAttackStrategy` — 일반, 투사체, 궁극기
+- 상태 효과: `IBuff` — 능력치 변화, 보호막, 도발, 침묵, 기절, 지속 피해·회복
 
-스킬 연출을 코드에 고정하지 않고 노드 그래프로 제작할 수 있는 런타임과 Editor Window를 함께 구현했습니다. 애니메이션, 이동, 피격 이벤트, 투사체, Timeline, 대화, QTE, 분기, Fork/Join을 노드로 조합합니다. 기획·연출 반복 작업을 데이터 수정으로 전환할 수 있도록 런타임 실행기와 제작 도구를 함께 설계한 부분입니다.
+각 기능을 인터페이스 기반 구현체로 분리하여 새 효과를 추가할 때 기존 전투 루프의 변경 범위를 줄였습니다.
 
-#### 4. 데이터와 콘텐츠의 독립적인 갱신
+```text
+Turn 시작
+  → 행동 유닛 결정
+  → 아군 입력 / 적 행동 선택
+  → 대상 및 스킬 확정
+  → 전투 카메라 전환
+  → Presentation Graph 실행
+  → 스킬 효과 적용
+  → 원위치 복귀 및 Turn 종료
+```
 
-게임 테이블을 생성 코드와 바이너리 데이터로 분리하고 Addressables 라벨 단위로 다운로드 크기 확인, 의존성 다운로드, 역직렬화를 수행합니다. 코드 빌드와 콘텐츠 갱신을 분리할 수 있는 패치 흐름을 구성했으며, 프리팹·씬·Timeline 역시 주소 기반으로 로드하고 사용 후 해제합니다.
+UniTask와 `CancellationToken`을 사용해 입력 대기, 애니메이션, 이동, 연출을 순차적으로 제어하고 전투 종료 시 진행 중인 작업을 취소할 수 있도록 구성했습니다.
 
-## 담당 범위
+**주요 코드**
 
-- 클라이언트 코어 구조와 씬/상태 전환
-- 턴제 전투, 스킬 실행기, 공격 전략 및 버프 시스템
-- 필드 이동, 상호작용, 적 AI와 전투 진입/복귀
-- 퀘스트 조건 인덱싱과 이벤트 기반 진행 처리
-- Addressables 패치 및 데이터 로딩
-- 그래프 기반 전투 연출 런타임과 Unity Editor 제작 도구
-- 전투·필드·QTE·팝업 UI 로직
+- `Assets/Scripts/Game/Battle/Domain/Battle`
+- `Assets/Scripts/Game/Battle/Domain/Turn`
+- `Assets/Scripts/Game/Battle/Domain/Skill`
+- `Assets/Scripts/Game/Battle/Domain/Buff`
 
-> 실제 참여 인원과 본인의 정확한 기여율이 있다면 이 섹션에 `개발 기간`, `팀 구성`, `담당 비율`을 추가하는 것을 권장합니다.
+## 2. 캐릭터 툴
 
-## 개발 환경
+`Tools/S7/Character Tool`에서 캐릭터 제작에 반복적으로 필요한 작업을 한 흐름으로 처리하는 Unity Editor 도구입니다.
 
-| 항목 | 값 |
+### 주요 기능
+
+- 전용 Preview Scene 자동 진입
+- 캐릭터 프리팹 생성과 즉시 미리보기
+- Animator State 선택 및 Play/Pause/Reset
+- 타임라인 스크러빙과 프레임 단위 애니메이션 확인
+- 애니메이션 이벤트 추가·삭제·시간 이동
+- 이벤트 시점의 이펙트 생성과 위치 확인
+- `CharacterAnimationSet` 에셋 저장
+- 대상 에셋의 Addressables 등록 지원
+- AnimationClip 이름 규칙을 이용한 Animator Override 자동 매핑
+
+런타임에서 결과를 확인한 뒤 프리팹과 애니메이션 파일을 반복 수정하던 작업을 줄이고, **캐릭터 세팅과 이벤트 타이밍 검증을 에디터 안에서 완료**하는 데 목적을 두었습니다.
+
+**주요 코드**
+
+- `Assets/Scripts/Tool/Character/Editor/CharacterToolWindow.cs`
+- `Assets/Scripts/Tool/Character/Editor/AnimatorOverrideAutoAssignWindow.cs`
+- `Assets/Scripts/Tool/Character/CharacterAnimationSet.cs`
+- `Assets/Scripts/Tool/Character/AnimationStateEventData.cs`
+
+## 3. 연출 그래프
+
+스킬 연출 순서를 코드에 하드코딩하지 않고 `PresentationGraphAsset` 데이터로 제작하는 노드 기반 시스템입니다.
+
+### 제작과 실행 분리
+
+```text
+PresentationGraphWindow
+  → PresentationGraphAsset 저장
+  → PresentationRuntimeGraphBuilder
+  → RuntimeNode 구성
+  → GraphExecutor 실행
+  → IPresentationNode.PlayAsync()
+```
+
+GraphView 기반 Editor Window가 노드와 연결 정보를 저장하고, 런타임 빌더가 직렬화 데이터를 실행 객체로 변환합니다. 편집 데이터와 런타임 객체를 분리하여 Editor 의존성이 실제 전투 코드에 섞이지 않도록 구성했습니다.
+
+### 지원 노드
+
+- 애니메이션 재생 및 애니메이션 이벤트 대기
+- 캐스팅, 이동, 바라보기, 페이드
+- 투사체 생성·발사와 피격 이벤트 등록
+- Timeline, 대화, QTE 실행
+- 조건 분기와 Choice
+- Fork/Join 기반 병렬 연출
+- 아군 표시·숨김 등 전투 화면 제어
+
+각 노드는 `IPresentationNode.PlayAsync()` 계약을 따르고, `PresentationContext`를 통해 시전자, 대상, 전투 매니저, Timeline 공급자 등 실행 데이터를 전달받습니다. Timeline과 그래프 에셋은 Addressables로 로드하며 실행 완료 후 해제합니다.
+
+**주요 코드**
+
+- `Assets/Scripts/Game/Presentation/Graph/Editor`
+- `Assets/Scripts/Game/Presentation/Graph/Runtime`
+- `Assets/Scripts/Game/Presentation/Node`
+- `Assets/Scripts/Game/Presentation/PresentationCore.cs`
+
+## 4. 연출 뷰어
+
+`Tools/S7/Skill Preview`는 전체 게임 플로우나 실제 전투 씬에 진입하지 않고 스킬 연출을 빠르게 확인하기 위한 전용 도구입니다.
+
+### 주요 기능
+
+- 프리뷰 환경에서 캐릭터·몬스터 모델 생성
+- 캐릭터/몬스터 및 스킬 데이터 선택
+- `SkillPreviewContextBuilder`로 실제 실행 구조와 동일한 연출 컨텍스트 구성
+- `SkillPreviewRunner`를 통한 연출 그래프 실행
+- 캐릭터와 몬스터의 위치·방향을 포함한 반복 테스트
+- 대상 교체와 종료 시 Addressables 인스턴스 해제
+
+연출 하나를 확인하기 위해 게임 시작, 필드 진입, 적 조우, 스킬 선택을 반복할 필요 없이 **제작 직후 결과를 검증**할 수 있도록 했습니다.
+
+**주요 코드**
+
+- `Assets/Scripts/Tool/SkillPreview/Editor/SkillPreviewWindow.cs`
+- `Assets/Scripts/Tool/SkillPreview/SkillPreviewRunner.cs`
+- `Assets/Scripts/Tool/SkillPreview/SkillPreviewContextBuilder.cs`
+- `Assets/Scripts/Tool/SkillPreview/PreviewUnitController.cs`
+
+## 콘텐츠 제작 워크플로
+
+```text
+[캐릭터 툴]
+애니메이션 확인 + 이벤트/이펙트 타이밍 편집
+        ↓
+[연출 그래프]
+애니메이션 + 이동 + 피격 + 카메라 + Timeline + QTE 조립
+        ↓
+[연출 뷰어]
+캐릭터/몬스터/스킬 선택 후 빠른 반복 검증
+        ↓
+[전투 시스템]
+동일한 Presentation Graph를 실제 턴과 스킬 실행에 연결
+```
+
+도구별로 독립된 데모 기능을 만드는 데 그치지 않고, **제작 데이터가 실제 런타임 전투에서 그대로 사용되는 구조**로 연결한 것이 이 프로젝트의 핵심입니다.
+
+## 사용 기술
+
+| 구분 | 기술 |
 | --- | --- |
-| Unity | `6000.3.21f1` |
-| 렌더 파이프라인 | Universal Render Pipeline `17.3.0` |
-| 입력 | Unity Input System `1.20.0` (구/신 입력 동시 사용 설정) |
-| 비동기 처리 | UniTask |
-| DI | VContainer `1.17.0` |
-| 에셋 로딩 | Unity Addressables |
-| UI | uGUI, TextMesh Pro, UI Extensions, Soft Mask, UI Particle |
-| 애니메이션 | DOTween / DOTween Pro |
-| AI·연출 | Behavior Designer, Cinemachine, Timeline |
+| 엔진 | Unity 6 (`6000.3.21f1`), C# |
+| 비동기 | UniTask, CancellationToken |
+| 리소스 | Unity Addressables, Object Pooling |
+| 에디터 확장 | EditorWindow, GraphView, AssetDatabase |
+| 전투 연출 | Cinemachine, Timeline, DOTween, Animation Event |
+| 구조 | State Machine, Strategy, Executor, Factory, Event Bus |
+| UI | uGUI, TextMesh Pro |
+| DI | VContainer |
 
-프로젝트에 포함된 주요 서드파티 에셋으로 Magica Cloth 2, Amplify Shader Editor, Voyager Toon, GPM, Umbra Soft Shadows 등이 있습니다. 정확한 UPM 의존성은 [`Packages/manifest.json`](Packages/manifest.json)을 확인하세요.
-
-## 시작하기
-
-1. Unity Hub에서 Unity `6000.3.21f1`을 설치합니다.
-2. 이 디렉터리를 Unity 프로젝트로 엽니다.
-3. Package Manager가 `Packages/manifest.json`의 Git 및 UPM 패키지를 복원할 때까지 기다립니다.
-4. Addressables Groups 창에서 설정과 활성 프로필을 확인합니다.
-5. `Assets/Scenes/SceneRoot.unity`를 열고 Play를 실행합니다.
-
-에디터에서는 다른 게임 씬을 직접 실행해도 `SceneBase.FirstLoad()`가 먼저 `SceneRoot`를 로드합니다. 정상적인 초기화 순서를 검증하려면 항상 `SceneRoot`부터 실행하는 것을 권장합니다.
-
-## 실행 흐름
+## 코드 구성
 
 ```text
-SceneRoot
-  └─ Global / System 초기화
-      └─ ScenePatch
-          ├─ 로컬 언어 데이터 로드
-          ├─ Addressables 다운로드 크기 확인
-          ├─ GameData 및 콘텐츠 다운로드/로드
-          └─ 로그인 버튼 → 필드 이동
-              └─ SceneField
-                  ├─ Field 배경/구역 씬 추가 로드
-                  ├─ 탐색, 상호작용, 적 AI, 퀘스트
-                  └─ 전투 요청
-                      ├─ 전투 로직 씬 추가 로드
-                      ├─ 전투 배경 씬 추가 로드
-                      └─ 턴/스킬/버프/연출 실행
+Assets/Scripts/
+├─ Game/
+│  ├─ Battle/Domain/              전투, 턴, 스킬, 버프
+│  ├─ Presentation/
+│  │  ├─ Graph/Editor/            연출 그래프 제작 UI
+│  │  ├─ Graph/Runtime/           그래프 빌드와 실행
+│  │  └─ Node/                    연출 노드 구현체
+│  └─ Unit/                       유닛 데이터, 컨트롤러, 뷰
+├─ Tool/
+│  ├─ Character/                  캐릭터 세팅 및 애니메이션 도구
+│  └─ SkillPreview/               스킬 연출 뷰어
+├─ UI/Battle/                     전투 HUD와 턴 UI
+└─ Manager/                       씬, Addressables, UI 관리
 ```
 
-Build Settings에 등록된 기본 씬은 다음 순서입니다.
+## 추가 구현 영역
 
-1. `Assets/Scenes/SceneRoot.unity`
-2. `Assets/Scenes/ScenePatch.unity`
-3. `Assets/Scenes/SceneField.unity`
+핵심 포트폴리오 영역 외에도 다음 시스템을 구현했습니다.
 
-필드의 배경·구역 및 전투 씬은 Addressables를 통해 Additive 방식으로 로드됩니다.
+- Additive Scene 기반 필드/전투 전환
+- Addressables 패치 및 게임 데이터 로딩
+- 필드 플레이어 조작과 적 AI Strategy
+- 이벤트 기반 퀘스트 조건 처리
+- 대화와 QTE 시스템
+- UI 패널·팝업 및 오브젝트 풀
 
-## 아키텍처
+## 공개 범위
 
-### 씬과 게임 상태
-
-- `GameSceneManager`는 기본 씬 전환, 페이드, 로딩 UI, 씬별 리소스 등록을 담당합니다.
-- `GameFlowManager`는 `Field`, `NightField`, `Story`, `Battle`, `UI`, `Loading` 상태를 관리합니다.
-- `SceneBase`는 씬 초기화, 사전 로드, 시작 및 해제 생명주기의 공통 기반입니다.
-- 필드에서는 VContainer의 `FieldLifeTimeScope`가 `FieldManager`, `SceneField`, 카메라 컨트롤러를 주입합니다.
-
-### 필드
-
-- `FieldManager`와 `PlayerManager`가 필드 및 플레이어 상태를 관리합니다.
-- 플레이어 입력, 이동, 자동 조준, 충돌 기반 전투 동작을 분리했습니다.
-- 적 AI는 `Alert`, `Chase`, `Kite`, `Return`, `Stay`, `Death` 등의 전략 객체로 행동을 전환합니다.
-- `FieldPortal`, `InteractableObject`, 감지기 계층이 이동과 상호작용을 처리합니다.
-- 배경 씬(`FieldBg/`)과 플레이 영역 씬(`FieldArea/`)을 분리하여 필요할 때 교체합니다.
-
-### 전투
-
-- `BattleManager`가 전투 생명주기와 루프를 조정합니다.
-- `BattleUnitManager`는 아군/적군 생성 및 참조를 관리합니다.
-- `TurnManager`는 현재 행동 유닛, 타깃, 스킬 선택과 턴 상태를 관리합니다.
-- `SkillManager`는 공격, 회복, 버프, 소환 실행기로 스킬 효과를 분배합니다.
-- 공격은 일반/투사체/궁극기/저항 전략으로 세분화되어 있습니다.
-- `BuffManager`는 공격력, 치명타, 보호막, 도발, 침묵, 기절, 지속 피해·회복 등의 버프를 관리합니다.
-
-### 연출, 대화, QTE
-
-- `PresentationGraphAsset`에 직렬화한 노드 그래프를 런타임 그래프로 변환해 실행합니다.
-- 애니메이션, 이동, 피격, 투사체, 분기, 병렬 실행, Timeline, 대화, QTE 노드를 지원합니다.
-- Timeline과 연출 그래프는 Addressables 키로 로드하고 실행 종료 후 해제합니다.
-- QTE는 입력 UI, 판정 로직, 표시 뷰를 분리하며 탭·스와이프·릴리스 유형을 제공합니다.
-
-### 퀘스트와 이벤트
-
-- `GameEventBus`의 이벤트를 활성 퀘스트가 구독합니다.
-- 처치, NPC 대화, 지역 진입, 아이템 획득, 스테이지 클리어 조건을 지원합니다.
-- 퀘스트 단계는 데이터 테이블에서 조건을 조립하고 조건별 인덱스를 만들어 이벤트를 처리합니다.
-
-### 데이터와 리소스
-
-- `Assets/Scripts/GameData`에는 시트별 생성 데이터 클래스와 `SheetName` 열거형이 있습니다.
-- `GameData` 라벨의 `*_Client.bytes` 파일을 로드한 뒤 `GameData.Excel.LoadGameData()`로 역직렬화합니다.
-- UI 패널/팝업, 유닛, 필드, 전투, 연출, 효과 등의 에셋은 Addressables 그룹으로 분리되어 있습니다.
-- 오브젝트 풀은 반복 생성되는 런타임 오브젝트를 재사용하며 씬 초기화 시 정리됩니다.
-
-## 주요 디렉터리
-
-```text
-Assets/
-├─ Scenes/                         기본 실행 및 개발용 씬
-├─ Scripts/
-│  ├─ Scenes/                     씬 생명주기
-│  ├─ Manager/                    씬, UI, Addressables, 시스템 매니저
-│  ├─ Game/
-│  │  ├─ Battle/                  턴, 스킬, 버프, 전투 데이터
-│  │  ├─ Field/                   플레이어, 적 AI, 상호작용, 필드 전투
-│  │  ├─ Manager/                 게임 상태, 유닛, 퀘스트
-│  │  ├─ Presentation/            그래프 기반 연출 런타임/에디터
-│  │  ├─ QTE/                     QTE 실행 및 판정
-│  │  ├─ Quest/                   퀘스트 조건과 액션
-│  │  └─ Unit/                    유닛 데이터, 제어, 뷰
-│  ├─ GameData/                   생성된 테이블 모델
-│  ├─ UI/                         패널, 팝업, 전투/필드/QTE UI
-│  ├─ Tool/                       캐릭터 및 스킬 연출 제작 도구
-│  └─ Utility/                    풀링, 저장, 입력, 대화, 공통 유틸리티
-├─ AddressableAssetsData/         Addressables 설정과 그룹
-├─ _RemoteData/                   원격 배포 대상 콘텐츠
-└─ Art/, UI/, Resources/          아트 및 로컬 리소스
-```
-
-`Library`, `Temp`, `Logs`, `obj`와 IDE가 생성하는 `.csproj`/`.sln` 파일은 Unity가 재생성할 수 있는 로컬 산출물입니다.
-
-## Addressables 작업
-
-프로젝트는 `GameData`, `Sprite`, `Font`, `UI`, `Unit`, `Presentation`, `Fx`, `Event` 라벨을 패치 시점에 확인합니다. 그룹에는 `Field.Area`, `Field.Bg`, `Battle`, `Battle.Bg`, `UI.Panel`, `UI.Popup` 등이 포함됩니다.
-
-콘텐츠를 추가할 때는 다음을 확인하세요.
-
-- 코드에서 사용하는 주소와 Addressables 엔트리 주소가 정확히 일치하는지
-- 패치 대상 에셋에 필요한 라벨이 지정되어 있는지
-- 씬을 Addressable로 로드한다면 해당 씬이 올바른 그룹에 포함되어 있는지
-- 데이터 파일 이름이 `GameData/T_<SheetName>_Client.Bytes` 규칙을 따르는지
-- 빌드 전 Addressables 콘텐츠 빌드를 최신 상태로 갱신했는지
-
-로컬 프로필은 기본적으로 Addressables의 BuildPath/RuntimePath를 사용하며, Remote 경로는 프로필 값에 따라 `ServerData/[BuildTarget]`에서 빌드하도록 설정되어 있습니다. 배포 환경에서는 활성 프로필과 `Remote.LoadPath`를 반드시 검증하세요.
-
-## 빌드
-
-1. `File > Build Profiles`에서 대상 플랫폼과 씬 목록을 확인합니다.
-2. `Window > Asset Management > Addressables > Groups`에서 사용할 프로필을 선택합니다.
-3. Addressables 콘텐츠를 빌드합니다.
-4. Player 빌드를 생성합니다.
-5. 실행 후 패치 화면에서 카탈로그 탐색, 다운로드, GameData 로드가 완료되는지 확인합니다.
-
-Android 빌드에서는 알림 및 저장소 권한 확인 코드가 조건부로 실행됩니다. 실제 배포 전에 대상 Android 버전에 맞게 권한 정책과 manifest를 재검토해야 합니다.
-
-## 에디터 도구
-
-- `CharacterToolWindow`: 캐릭터 애니메이션/이벤트 설정 지원
-- `AnimatorOverrideAutoAssignWindow`: Animator Override 자동 연결
-- `FieldEnemySetupWindow`: 필드 적 오브젝트 구성 지원
-- `PresentationGraphWindow`: 연출 노드 그래프 편집
-- `SkillPreviewWindow`: 캐릭터/몬스터 스킬 연출 미리보기
-- `PlayerSwitchWindow`: 에디터 플레이어 전환 지원
-
-도구의 실제 메뉴 경로와 요구 프리팹은 각 Editor 스크립트의 `MenuItem` 및 직렬화 필드를 기준으로 확인하세요.
-
-## 개발 시 주의사항
-
-- `UIPanelPatch`는 현재 로그인 후 임시 파티를 만들고 필드 ID `8`로 이동합니다.
-- `GameFlowManager.EnterBattle()`에는 디버깅용 `Time.timeScale = 0.1f` 코드가 남아 있습니다.
-- `Global.InitializeCharacter()`, 인벤토리, 로비 이동, 컷신 호출 등 일부 기능은 아직 비어 있거나 구현 중입니다.
-- `Global.AddCharacter()`의 현재 조건문은 신규 키를 추가하지 못하는 형태이므로 캐릭터 저장 기능을 연결하기 전에 확인이 필요합니다.
-- 일부 런타임 스크립트가 `NUnit.Framework` 또는 에디터/툴 네임스페이스를 참조합니다. Player 빌드 오류가 발생하면 런타임 의존성을 우선 점검하세요.
-- 프로젝트 전용 asmdef가 없어 대부분의 게임 코드가 `Assembly-CSharp`로 컴파일됩니다. 규모가 커질 경우 Runtime/Editor 모듈 분리를 고려할 수 있습니다.
-- 자동화된 프로젝트 테스트는 현재 별도 테스트 어셈블리에서 확인되지 않습니다. 변경 후 최소한 패치, 필드 진입, 전투 진입/복귀 흐름을 수동 검증하세요.
-
-## 기본 점검 시나리오
-
-1. `SceneRoot`에서 Play한다.
-2. 패치 진행률과 로컬 문자열이 정상적으로 표시되는지 확인한다.
-3. 로그인 버튼으로 필드에 진입한다.
-4. 플레이어 이동, 카메라, 포털 및 상호작용을 확인한다.
-5. 적 조우 후 전투 씬과 배경이 로드되는지 확인한다.
-6. 아군 스킬 선택, 적 턴, 버프 및 연출이 정상 실행되는지 확인한다.
-7. 승리 또는 도주 후 기존 필드 상태로 복귀하는지 확인한다.
-
+이 저장소에는 `Assets/Scripts`와 문서만 포함되어 있어 Unity 프로젝트를 그대로 실행할 수 없습니다. 모델, 애니메이션, 프리팹, 씬, 데이터 테이블 및 유료 에셋은 저작권과 프로젝트 보안을 위해 제외했습니다.

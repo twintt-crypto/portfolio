@@ -1,0 +1,526 @@
+using Cysharp.Threading.Tasks;
+using DG.Tweening;
+using GameEventSystem;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.Rendering.Universal;
+
+namespace S7
+{
+    public class UnitView : MonoBehaviour
+    {
+        // ================================
+        // Inspector
+        // ================================
+        [Header("View Anchors")]
+        [SerializeField] private Transform _modelRoot;   // 
+        [SerializeField] private Transform _hitPoint;    //
+        [SerializeField] private Transform _viewPoint;
+
+        [SerializeField] private Collider _collider;
+
+
+        [Header("UI Anchors")]
+        [SerializeField] private UnitUI _unitUi;
+        [SerializeField] private Transform _topPoint;
+
+        public CharacterAnimationSet AnimationSet { get; private set; }
+
+        public CombatColliderController CombatColliderController { get; private set; }
+
+        public AnimationEventReceiver animationEventReceiver;        
+
+        // ================================
+        // Runtime
+        // ================================
+        public UnitData Data { get; private set; }
+
+        public Transform TargetPoint { get; private set; }
+        public Transform ViewPoint { get => _viewPoint; }
+
+        private GameObject _model;
+        private Animator _animator;
+        public Animator Animator { get => _animator; }
+
+        private int _unitLayerMask;
+
+        private GameObject _selectEffect;
+        public Vector3 OriginPos { get; private set; }
+        public Transform HitPoint { get => _hitPoint; }
+        public GameObject Model { get => _model;}
+        public Collider Collider { get => _collider;}
+
+        // Sockets
+        private Dictionary<string, Transform> socketMap = new Dictionary<string, Transform>();
+
+        // ================================
+        // Bind
+        // ================================
+        public void Bind(UnitController controller)
+        {
+            Data = controller.data;
+        }
+
+        // ================================
+        // Model Loading
+        // ================================
+        public async UniTask LoadModelAsync(string modelAddress)
+        {
+            if (_model != null)
+            {
+                ResourceManager.Free(_model);
+                _model = null;
+                _animator = null;
+            }
+
+            // Addressables / ResourceManager 
+            _model = await ResourceManager.NewAsync(modelAddress, _modelRoot);
+
+            _model.transform.localPosition = Vector3.zero;
+            _model.transform.localRotation = Quaternion.identity;
+
+            // Animator 
+            _animator = _model.GetComponentInChildren<Animator>();
+            CombatColliderController = _model.SafeGetComponent<CombatColliderController>();
+            animationEventReceiver = _model.SafeGetComponent<AnimationEventReceiver>();
+
+            UpdateData();
+
+            OriginPos = transform.position;
+        }
+
+        public void Initialize(UnitData unitData, BattleSlot slot)
+        {
+            TargetPoint = slot.targetPoint;
+            _viewPoint.position = slot.targetPoint.position;
+
+            if (unitData.unitType == UnitType.Character == true)
+            {
+                _unitUi.SetActive(false);
+            }
+
+            _unitLayerMask = LayerMask.GetMask("Unit");
+
+            LoadCharacterAnimationSet(unitData);
+            InitSocket();
+        }
+
+        public void LoadCharacterAnimationSet(UnitData data)
+        {
+            T_UnitData unitData = T_UnitData.Get(data.unitId);
+            if (unitData == null)
+            {
+                return;
+            }
+
+            if (unitData.AnimationEvents.IsNullOrEmpty() == true)
+            {
+                return;
+            }
+
+            if(!unitData.AnimationEvents.IsNullOrEmpty()) 
+                LoadCharacterAnimationSet($"{unitData.Prefix}Data/AninmationEventSet/{unitData.AnimationEvents}.asset").Forget();
+        }
+
+        private async UniTask LoadCharacterAnimationSet(string AnimationEventName)
+        {
+            
+            Debug.Log($"Loadint AnimationEventName : {AnimationEventName}");
+            AnimationSet = await ResourceManager.LoadAssetAsync<CharacterAnimationSet>(AnimationEventName);
+        }
+
+
+        public void InitSocket()
+        {
+            socketMap.Clear();
+
+            var markers = GetComponentsInChildren<SocketMarker>(true);
+
+            foreach (var marker in markers)
+            {
+                socketMap[marker.SocketName] = marker.transform;
+            }
+        }
+
+        void UpdateData()
+        {
+            var renderers = _model.GetComponentsInChildren<Renderer>();
+
+            Bounds bounds = renderers[0].bounds;
+            foreach (var r in renderers)
+                bounds.Encapsulate(r.bounds);
+
+            float forwardOffset = bounds.extents.z;
+            float height = bounds.max.y;
+
+            _topPoint.position = new Vector3(bounds.center.x, height, bounds.center.z);
+
+            var capsule = _collider as CapsuleCollider;
+
+            if (capsule != null)
+            {
+                // center는 로컬 기준이라 변환 필요
+                Vector3 localCenter = _collider.transform.InverseTransformPoint(bounds.center);
+                capsule.center = localCenter;
+
+                // radius: X,Z 중 큰값 기준
+                float radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
+
+                // height: 전체 높이
+                height = bounds.size.y;
+
+                // 캡슐은 height >= radius * 2 이어야 정상
+                height = Mathf.Max(height, radius * 2f);
+
+                capsule.radius = radius;
+                capsule.height = height;
+            }
+        }
+
+        // ================================
+        // Animation API 
+        // ================================
+        public void PlayIdle()
+        {
+            _animator?.CrossFadeInFixedTime(AnimHash.Idle, 0.1f);
+        }
+
+        public async UniTask PlayAttackAsync(Action<int> onHit, CancellationToken token)
+        {
+            await UniTask.CompletedTask;
+        }
+
+        public void PlayAttackIdle()
+        {
+            _animator.CrossFadeInFixedTime(AnimHash.AttackIdle, 0.1f);
+        }
+
+        float parryTime = 0;
+        public async UniTask PlayParry()                                                          
+        {
+            if (parryTime != 0)
+            {
+                return;
+            }
+
+            parryTime = Time.time;
+            _animator.CrossFadeInFixedTime(AnimHash.Parry, 0.1f);
+
+            await UniTask.Yield();
+
+            var stateInfo = _animator.GetCurrentAnimatorStateInfo(0);
+            float length = stateInfo.length;
+
+            await UniTask.Delay(TimeSpan.FromSeconds(length));
+            await UniTask.Delay(100);
+            parryTime = 0;
+        }
+
+        public void PlayDeath()
+        {
+            _animator.CrossFadeInFixedTime(AnimHash.Death, 0.1f);
+        }
+
+        public void PlayRun()
+        {
+            _animator.CrossFadeInFixedTime(AnimHash.Run, 0.1f);
+        }
+
+        public void SetSelected(bool on)
+        {
+
+        }
+
+        // ================================
+        // Utility
+        // ================================
+        public Transform GetHitPoint()
+        {
+            return _hitPoint != null ? _hitPoint : transform;
+        }
+
+        public async UniTask LookAtAsync(Vector3 targetPos, float duration = 0.4f, Ease ease = Ease.OutQuad)
+        {
+            if (this == null) return;
+
+            Vector3 dir = targetPos - transform.position;
+            dir.y = 0f;
+
+            if (dir == Vector3.zero)
+                return;
+
+            Quaternion targetRot = Quaternion.LookRotation(dir);
+
+            var tween = transform
+                .DORotateQuaternion(targetRot, duration)
+                .SetEase(ease);
+
+            try
+            {
+                await tween.ToUniTask(
+                    cancellationToken: this.GetCancellationTokenOnDestroy());
+            }
+            catch (OperationCanceledException)
+            {
+                // View Destroy 
+            }
+        }
+
+        public async UniTask PlayAnimationAsync(int animHash, CancellationToken token)
+        {
+            if (_animator == null || !gameObject.activeInHierarchy)
+                return;
+
+            // ======================
+            // 애니 실행
+            // ======================
+            _animator.CrossFadeInFixedTime(animHash, 0.1f);
+
+            // ======================
+            // 애니 진입 대기 (핵심)
+            // ======================
+            await UniTask.WaitUntil(() =>
+            {
+                if (_animator == null)
+                    return true;
+
+                var state = _animator.GetCurrentAnimatorStateInfo(0);
+
+                return state.shortNameHash == animHash &&
+                       !_animator.IsInTransition(0);
+            }, cancellationToken: token);
+
+            // ======================
+            // 여기서 이벤트 시작
+            // ======================
+            RunEventAsync(animHash, token).Forget();
+
+            // ======================
+            // 애니 종료 대기
+            // ======================
+            await UniTask.WaitUntil(() =>
+            {
+                if (_animator == null)
+                    return true;
+
+                var state = _animator.GetCurrentAnimatorStateInfo(0);
+
+                // 상태 바뀌면 종료
+                if (state.shortNameHash != animHash)
+                    return true;
+
+                // transition 중이면 아직 끝 아님
+                if (_animator.IsInTransition(0))
+                    return false;
+
+                return state.normalizedTime >= 1f;
+
+            }, cancellationToken: token).SuppressCancellationThrow();
+        }
+
+        private async UniTask HandleEvents(AnimationStateEventData data, int animHash, CancellationToken token)
+        {
+            if (_animator == null || data == null || data.events == null || data.events.Count == 0)
+                return;
+
+            var events = data.events;
+
+            bool[] triggered = new bool[events.Count];
+
+            float prevTime = -1f; // 핵심 수정
+            float prevNormalized = 0f;
+
+            while (true)
+            {
+                if (_animator == null)
+                    return;
+
+                var state = _animator.GetCurrentAnimatorStateInfo(0);
+
+                // 상태 바뀌면 종료
+                if (state.shortNameHash != animHash)
+                    break;
+
+                var clips = _animator.GetCurrentAnimatorClipInfo(0);
+
+                if (clips.Length == 0)
+                {
+                    await UniTask.Yield(PlayerLoopTiming.Update, token);
+                    continue;
+                }
+
+                // weight 높은 clip 선택
+                var clipInfo = clips[0];
+                for (int i = 1; i < clips.Length; i++)
+                {
+                    if (clips[i].weight > clipInfo.weight)
+                        clipInfo = clips[i];
+                }
+
+                var clip = clipInfo.clip;
+
+                float normalized = state.normalizedTime;
+                float t = normalized % 1f;
+                float currentTime = t * clip.length;
+
+                bool looped = Mathf.FloorToInt(normalized) > Mathf.FloorToInt(prevNormalized);
+
+                // ======================
+                // 첫 프레임 보정 (중요)
+                // ======================
+                if (prevTime < 0f)
+                {
+                    prevTime = currentTime;
+                    prevNormalized = normalized;
+
+                    await UniTask.Yield(PlayerLoopTiming.Update, token);
+                    continue;
+                }
+
+                // ======================
+                // 이벤트 처리 (transition 상관없이 실행)
+                // ======================
+                for (int i = 0; i < events.Count; i++)
+                {
+                    if (triggered[i])
+                        continue;
+
+                    var evt = events[i];
+
+                    if (!looped)
+                    {
+                        if (prevTime <= evt.time && currentTime >= evt.time)
+                        {
+                            triggered[i] = true;
+                            ExecuteEvent(evt);
+                        }
+                    }
+                    else
+                    {
+                        if (evt.time >= prevTime || evt.time <= currentTime)
+                        {
+                            triggered[i] = true;
+                            ExecuteEvent(evt);
+                        }
+                    }
+                }
+
+                prevTime = currentTime;
+                prevNormalized = normalized;
+
+                // ======================
+                // 종료 조건
+                // ======================
+                if (!clip.isLooping && normalized >= 1f && !_animator.IsInTransition(0))
+                    break;
+
+                try
+                {
+                    await UniTask.Yield(PlayerLoopTiming.Update, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
+
+        private void ExecuteEvent(AnimationEventData evt)
+        {
+            switch (evt.type)
+            {
+                case AnimationEventType.SpawnEffect:
+                    PlayEffect(evt).Forget();
+                    break;
+
+                case AnimationEventType.OnHit:
+                    animationEventReceiver.OnAnimationEvent(evt.type, evt);
+                    break;
+
+                case AnimationEventType.Sound:
+                    //PlaySound(evt);
+                    break;
+            }
+        }
+
+        private async UniTask PlayEffect(AnimationEventData evt)
+        {
+            if (evt.effect == null)
+                return;
+
+            Transform anchor = GetSocket(evt.socket);
+
+            if (anchor == null)
+                anchor = transform;
+
+            var effect = evt.effect;                        
+
+             await EffectSpawner.Spawn(effect.address, transform.position, _modelRoot.GetChild(0), effect.duration);            
+        }
+
+        public async UniTask OnlyPlayAnimationAsync(int animHash, CancellationToken token)
+        {
+            if (_animator == null || !gameObject.activeInHierarchy)
+                return;            
+
+            // 애니 시작
+            _animator.CrossFadeInFixedTime(animHash, 0.1f);            
+            RunEventAsync(animHash, token).Forget();
+            await UniTask.CompletedTask;
+        }
+
+        private async UniTaskVoid RunEventAsync(int animHash, CancellationToken token)
+        {           
+            if (_animator == null)
+                return;
+
+            var data = AnimationSet?.Get(animHash);
+
+            if (data == null || data.events == null || data.events.Count == 0)
+                return;
+
+            // 이벤트 실행 (독립적으로)
+            await HandleEvents(data, animHash, token);
+        }
+
+        public async UniTask MoveToAsync(
+        Vector3 pos,
+        int duration = 200,
+        Ease ease = Ease.Linear,
+        CancellationToken token = default)
+        {
+            if (this == null) return;
+
+            var tween = transform
+                .DOMove(pos, (float)duration / 1000)
+                .SetEase(ease);
+
+            await tween.ToUniTask(cancellationToken: token);
+            PlayAttackIdle();
+        }
+
+        public void OnDestroy()
+        {
+            transform.DOKill();
+        }
+
+        public Transform GetSocket(string socketName)
+        {
+            if (string.IsNullOrEmpty(socketName))
+                return transform;
+
+            if (socketMap.TryGetValue(socketName, out var socket))
+                return socket;
+
+            Debug.LogWarning($"Socket not found: {socketName}");
+            return transform;
+        }
+    }
+}
+
+

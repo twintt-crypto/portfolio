@@ -278,24 +278,6 @@ PresentationGraphWindow
 - `Assets/Scripts/Tool/SkillPreview/SkillPreviewRunner.cs`
 - `Assets/Scripts/Tool/SkillPreview/SkillPreviewContextBuilder.cs`
 - `Assets/Scripts/Tool/SkillPreview/PreviewUnitController.cs`
-## 콘텐츠 제작 워크플로
-
-```text
-[캐릭터 툴]
-애니메이션 확인 + 이벤트/이펙트 타이밍 편집
-        ↓
-[연출 그래프]
-애니메이션 + 이동 + 피격 + 카메라 + Timeline + QTE 조립
-        ↓
-[연출 뷰어]
-캐릭터/몬스터/스킬 선택 후 빠른 반복 검증
-        ↓
-[전투 시스템]
-동일한 Presentation Graph를 실제 턴과 스킬 실행에 연결
-```
-
-도구별로 독립된 데모 기능을 만드는 데 그치지 않고, **제작 데이터가 실제 런타임 전투에서 그대로 사용되는 구조**로 연결한 것이 이 프로젝트의 핵심입니다.
-
 ## 사용 기술
 
 | 구분 | 기술 |

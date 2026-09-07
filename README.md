@@ -200,7 +200,7 @@ UniTask와 `CancellationToken`으로 입력 대기, 카메라 전환, 캐릭터 
 - `Assets/Scripts/Game/Battle/Domain/Buff`
 ## 2. 캐릭터 툴
 
-`Tools/S7/Character Tool`은 캐릭터 프리팹과 애니메이션을 게임에 적용하기 전에 **재생, 이벤트 편집, 이펙트 배치, 데이터 저장을 한 화면에서 처리**하기 위해 제작한 Unity Editor 도구입니다.
+`Character Tool`은 캐릭터 프리팹과 애니메이션을 게임에 적용하기 전에 **재생, 이벤트 편집, 이펙트 배치, 데이터 저장을 한 화면에서 처리**하기 위해 제작한 Unity Editor 도구입니다.
 
 ### 제작 배경
 
@@ -261,7 +261,7 @@ Animation State별 이벤트를 타임라인 마커로 표시하며, 현재 프�
 
 ## 3. 연출 그래프 에디터
 
-`Tools/S7/Presentation Graph`는 스킬 연출을 코드에 하드코딩하지 않고 **노드를 조립해 제작하는 GraphView 기반 Editor Window**입니다. 편집용 그래프와 런타임 실행 객체를 분리하여 제작 편의성과 런타임 독립성을 함께 확보했습니다.
+`Presentation Graph`는 스킬 연출을 코드에 하드코딩하지 않고 **노드를 조립해 제작하는 GraphView 기반 Editor Window**입니다. 편집용 그래프와 런타임 실행 객체를 분리하여 제작 편의성과 런타임 독립성을 함께 확보했습니다.
 
 ### 그래프 제작 기능
 
@@ -322,7 +322,7 @@ PresentationGraphWindow
 
 ## 4. 스킬 연출 뷰어
 
-`Tools/S7/Skill Preview`는 전체 게임 플로우나 실제 전투 씬에 진입하지 않고 **실제 데이터와 동일한 연출 실행기를 사용해 스킬을 빠르게 검증**하는 도구입니다.
+`Skill Preview`는 전체 게임 플로우나 실제 전투 씬에 진입하지 않고 **실제 데이터와 동일한 연출 실행기를 사용해 스킬을 빠르게 검증**하는 도구입니다.
 
 ### 자동 테스트 환경 구성
 
@@ -398,3 +398,4 @@ Assets/Scripts/
 - 이벤트 기반 퀘스트 조건 처리
 - 대화와 QTE 시스템
 - UI 패널·팝업 및 오브젝트 풀
+

@@ -152,11 +152,11 @@ ResourceManager.NewAsync(key, usePooling: true)
 
 **주요 코드**
 
-- `Assets/Scripts/Utility/ObjectPool/ObjectPoolManager.cs`
-- `Assets/Scripts/Utility/ObjectPool/ObjectPool.cs`
-- `Assets/Scripts/Manager/ResourceManager.cs`
-- `Assets/Scripts/Game/EffectAutoRelease.cs`
-- `Assets/Scripts/Game/Projectile/Projectile.cs`
+- `TurnBasedRPGScript/Utility/ObjectPool/ObjectPoolManager.cs`
+- `TurnBasedRPGScript/Utility/ObjectPool/ObjectPool.cs`
+- `TurnBasedRPGScript/Manager/ResourceManager.cs`
+- `TurnBasedRPGScript/Game/EffectAutoRelease.cs`
+- `TurnBasedRPGScript/Game/Projectile/Projectile.cs`
 ### 확장 가능한 전투 구조
 
 - 스킬 효과: `ISkillActionExecutor` — 공격, 회복, 버프, 소환
@@ -192,12 +192,12 @@ UniTask와 `CancellationToken`으로 입력 대기, 카메라 전환, 캐릭터 
 
 **주요 코드**
 
-- `Assets/Scripts/Game/Battle/Domain/Battle/BattleManager.cs`
-- `Assets/Scripts/Game/Battle/Domain/Battle/BattleManager.BattleLoop.cs`
-- `Assets/Scripts/Game/Battle/Domain/Battle/BattleCameraManager.cs`
-- `Assets/Scripts/Game/Battle/Domain/Turn`
-- `Assets/Scripts/Game/Battle/Domain/Skill`
-- `Assets/Scripts/Game/Battle/Domain/Buff`
+- `TurnBasedRPGScript/Game/Battle/Domain/Battle/BattleManager.cs`
+- `TurnBasedRPGScript/Game/Battle/Domain/Battle/BattleManager.BattleLoop.cs`
+- `TurnBasedRPGScript/Game/Battle/Domain/Battle/BattleCameraManager.cs`
+- `TurnBasedRPGScript/Game/Battle/Domain/Turn`
+- `TurnBasedRPGScript/Game/Battle/Domain/Skill`
+- `TurnBasedRPGScript/Game/Battle/Domain/Buff`
 ## 2. 캐릭터 툴
 
 `Character Tool`은 캐릭터 프리팹과 애니메이션을 게임에 적용하기 전에 **재생, 이벤트 편집, 이펙트 배치, 데이터 저장을 한 화면에서 처리**하기 위해 제작한 Unity Editor 도구입니다.
@@ -253,11 +253,11 @@ Animation State별 이벤트를 타임라인 마커로 표시하며, 현재 프�
 
 **주요 코드**
 
-- `Assets/Scripts/Tool/Character/Editor/CharacterToolWindow.cs`
-- `Assets/Scripts/Tool/Character/Editor/AnimatorOverrideAutoAssignWindow.cs`
-- `Assets/Scripts/Tool/Character/AnimatorClipMappingPreset.cs`
-- `Assets/Scripts/Tool/Character/CharacterAnimationSet.cs`
-- `Assets/Scripts/Tool/Character/AnimationStateEventData.cs`
+- `TurnBasedRPGScript/Tool/Character/Editor/CharacterToolWindow.cs`
+- `TurnBasedRPGScript/Tool/Character/Editor/AnimatorOverrideAutoAssignWindow.cs`
+- `TurnBasedRPGScript/Tool/Character/AnimatorClipMappingPreset.cs`
+- `TurnBasedRPGScript/Tool/Character/CharacterAnimationSet.cs`
+- `TurnBasedRPGScript/Tool/Character/AnimationStateEventData.cs`
 
 ## 3. 연출 그래프 에디터
 
@@ -314,11 +314,11 @@ PresentationGraphWindow
 
 **주요 코드**
 
-- `Assets/Scripts/Game/Presentation/Graph/Editor/PresentationGraphWindow.cs`
-- `Assets/Scripts/Game/Presentation/Graph/Editor/PresentationGraphView.cs`
-- `Assets/Scripts/Game/Presentation/Graph/Editor/PresentationGraphNodeView.cs`
-- `Assets/Scripts/Game/Presentation/Graph/Runtime`
-- `Assets/Scripts/Game/Presentation/Node`
+- `TurnBasedRPGScript/Game/Presentation/Graph/Editor/PresentationGraphWindow.cs`
+- `TurnBasedRPGScript/Game/Presentation/Graph/Editor/PresentationGraphView.cs`
+- `TurnBasedRPGScript/Game/Presentation/Graph/Editor/PresentationGraphNodeView.cs`
+- `TurnBasedRPGScript/Game/Presentation/Graph/Runtime`
+- `TurnBasedRPGScript/Game/Presentation/Node`
 
 ## 4. 스킬 연출 뷰어
 
@@ -353,10 +353,10 @@ PresentationGraphWindow
 
 **주요 코드**
 
-- `Assets/Scripts/Tool/SkillPreview/Editor/SkillPreviewWindow.cs`
-- `Assets/Scripts/Tool/SkillPreview/SkillPreviewRunner.cs`
-- `Assets/Scripts/Tool/SkillPreview/SkillPreviewContextBuilder.cs`
-- `Assets/Scripts/Tool/SkillPreview/PreviewUnitController.cs`
+- `TurnBasedRPGScript/Tool/SkillPreview/Editor/SkillPreviewWindow.cs`
+- `TurnBasedRPGScript/Tool/SkillPreview/SkillPreviewRunner.cs`
+- `TurnBasedRPGScript/Tool/SkillPreview/SkillPreviewContextBuilder.cs`
+- `TurnBasedRPGScript/Tool/SkillPreview/PreviewUnitController.cs`
 ## 사용 기술
 
 | 구분 | 기술 |
@@ -373,7 +373,7 @@ PresentationGraphWindow
 ## 코드 구성
 
 ```text
-Assets/Scripts/
+TurnBasedRPGScript/
 ├─ Game/
 │  ├─ Battle/Domain/              전투, 턴, 스킬, 버프
 │  ├─ Presentation/
@@ -398,4 +398,3 @@ Assets/Scripts/
 - 이벤트 기반 퀘스트 조건 처리
 - 대화와 QTE 시스템
 - UI 패널·팝업 및 오브젝트 풀
-
